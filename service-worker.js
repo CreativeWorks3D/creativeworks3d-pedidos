@@ -1,0 +1,48 @@
+// Creative Works 3D — Talão de Pedidos — Service Worker
+// Permite abrir o app mesmo sem internet (dados ficam no localStorage do navegador).
+// A importação do catálogo continua precisando de internet, o resto funciona offline.
+
+const CACHE_NAME = 'cw3d-pedidos-v2';
+const APP_SHELL = [
+  './',
+  './index.html',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png'
+];
+
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', event => {
+  const req = event.request;
+
+  // Só cuida das nossas páginas (mesmo domínio). Chamadas externas (products.json do
+  // catálogo, EmailJS, zippopotam) seguem direto pra internet, sem passar pelo cache.
+  if (new URL(req.url).origin !== self.location.origin) return;
+
+  // cache:'no-store' garante que sempre busca a versão mais nova de verdade,
+  // sem o navegador entregar uma cópia antiga guardada no cache HTTP normal.
+  event.respondWith(
+    fetch(req, { cache: 'no-store' })
+      .then(res => {
+        const resClone = res.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(req, resClone));
+        return res;
+      })
+      .catch(() => caches.match(req).then(cached => cached || caches.match('./index.html')))
+  );
+});
